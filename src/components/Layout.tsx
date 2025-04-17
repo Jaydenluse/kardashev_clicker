@@ -1,9 +1,10 @@
 import React, { createContext, useState, useContext, useEffect, useRef } from 'react';
 import { Outlet, useNavigate, useLocation } from 'react-router-dom';
-import { LuStar, LuRocket, LuHome, LuArrowUpCircle } from 'react-icons/lu';
+import { LuStar, LuRocket, LuHome, LuArrowUpCircle, LuSettings } from 'react-icons/lu';
 import { GiBrain } from "react-icons/gi";
 import { MdLock } from "react-icons/md";
 import Modal from './Modal';
+import DifficultyModal from './DifficultyModal';
 
 const GameContext = createContext(null);
 
@@ -30,10 +31,26 @@ const Layout = () => {
     const saved = localStorage.getItem('clickUpgradeCounts');
     return saved ? JSON.parse(saved) : { 'Better Collector': 0, 'Stardust Magnet': 0, 'Quantum Harvester': 0 };
   });
+  const [difficultyMultiplier, setDifficultyMultiplier] = useState(() => {
+    const saved = localStorage.getItem('difficultyMultiplier');
+    return saved ? parseFloat(saved) : 1; // Default to Normal
+  });
+  const [difficultySelected, setDifficultySelected] = useState(() => {
+    const saved = localStorage.getItem('difficultySelected');
+    return saved === 'true';
+  });
   const [showOfflineModal, setShowOfflineModal] = useState(false);
   const [offlineStardust, setOfflineStardust] = useState(0);
   const [showHumanUpgradeModal, setShowHumanUpgradeModal] = useState(false);
-
+  const [showDifficultyModal, setShowDifficultyModal] = useState(false);
+  const [totalClicks, setTotalClicks] = useState(() => {
+    const saved = localStorage.getItem('totalClicks');
+    return saved ? parseInt(saved) : 0;
+  });
+  const [achievements, setAchievements] = useState(() => {
+    const saved = localStorage.getItem('achievements');
+    return saved ? JSON.parse(saved) : {};
+  });
 
   const navigate = useNavigate();
   const location = useLocation();
@@ -52,6 +69,13 @@ const Layout = () => {
 
   const lastUpdateRef = useRef(Date.now());
 
+  // Check if difficulty needs to be set
+  useEffect(() => {
+    if (!difficultySelected && sps === 0) {
+      setShowDifficultyModal(true);
+    }
+  }, [difficultySelected, sps]);
+
   // Idling logic
   const calculateOfflineProgress = () => {
     const now = Date.now();
@@ -60,7 +84,7 @@ const Layout = () => {
     const elapsedSeconds = (now - lastUpdate) / 1000;
 
     if (elapsedSeconds > 5) {  // Threshold for showing modal
-      const earnedStardust = elapsedSeconds * storedSps;
+      const earnedStardust = elapsedSeconds * storedSps * difficultyMultiplier;
       setStardust(prevStardust => {
         const newStardust = prevStardust + earnedStardust;
         return newStardust;
@@ -88,7 +112,8 @@ const Layout = () => {
     const timer = setInterval(() => {
       if (!document.hidden) {
         setStardust(prevStardust => {
-          const newStardust = prevStardust + sps / 10;
+          // Apply difficulty multiplier to SPS gain
+          const newStardust = prevStardust + (sps / 10) * difficultyMultiplier;
           localStorage.setItem('stardust', newStardust.toString());
           localStorage.setItem('lastUpdate', Date.now().toString());
           return newStardust;
@@ -100,7 +125,7 @@ const Layout = () => {
       clearInterval(timer);
       document.removeEventListener("visibilitychange", handleVisibilityChange);
     };
-  }, [sps]);
+  }, [sps, difficultyMultiplier]);
 
   useEffect(() => {
     localStorage.setItem('stardust', stardust.toString());
@@ -108,8 +133,12 @@ const Layout = () => {
     localStorage.setItem('upgradeCounts', JSON.stringify(upgradeCounts));
     localStorage.setItem('clickPower', clickPower.toString());
     localStorage.setItem('clickUpgradeCounts', JSON.stringify(clickUpgradeCounts));
+    localStorage.setItem('difficultyMultiplier', difficultyMultiplier.toString());
+    localStorage.setItem('difficultySelected', difficultySelected.toString());
+    localStorage.setItem('totalClicks', totalClicks.toString());
+    localStorage.setItem('achievements', JSON.stringify(achievements));
     // localStorage.clear();
-  }, [stardust, sps, upgradeCounts, clickPower, clickUpgradeCounts]);
+  }, [stardust, sps, upgradeCounts, clickPower, clickUpgradeCounts, difficultyMultiplier, difficultySelected, totalClicks, achievements]);
 
   useEffect(() => {
     window.scrollTo(0, 0);
@@ -120,8 +149,15 @@ const Layout = () => {
     const cost = Math.floor(upgrade.baseCost * Math.pow(1.15, count));
     if (stardust >= cost) {
       setStardust(prevStardust => prevStardust - cost);
+      // Apply difficulty multiplier to SPS gain from upgrades
       setSps(prevSps => prevSps + upgrade.sps);
       setUpgradeCounts(prev => ({ ...prev, [upgrade.name]: (prev[upgrade.name] || 0) + 1 }));
+      
+      // Check for planet evolution achievement
+      const totalUpgrades = Object.values(upgradeCounts).reduce((sum, count) => sum + count, 0) + 1;
+      if (totalUpgrades === 15) {
+        setAchievements(prev => ({ ...prev, planetEvolution: true }));
+      }
     }
 
     if (upgrade.name === 'Human' && count === 0) {
@@ -135,6 +171,22 @@ const Layout = () => {
     } 
   };
 
+  const openDifficultyModal = () => {
+    setShowDifficultyModal(true);
+  };
+
+  // Function to increment total clicks (for achievements)
+  const incrementTotalClicks = () => {
+    setTotalClicks(prev => prev + 1);
+    
+    // Check for click achievements
+    if (totalClicks + 1 === 100) {
+      setAchievements(prev => ({ ...prev, clicks100: true }));
+    } else if (totalClicks + 1 === 1000) {
+      setAchievements(prev => ({ ...prev, clicks1000: true }));
+    }
+  };
+  
   return (
     <GameContext.Provider value={{ 
       stardust,
@@ -147,6 +199,13 @@ const Layout = () => {
       setClickPower,
       clickUpgradeCounts,
       setClickUpgradeCounts,
+      difficultyMultiplier,
+      setDifficultyMultiplier,
+      difficultySelected,
+      setDifficultySelected,
+      totalClicks,
+      incrementTotalClicks,
+      achievements,
       buyUpgrade,
     }}>
       <div className="min-h-screen bg-slate-950 text-white flex flex-col">
@@ -157,8 +216,20 @@ const Layout = () => {
           </div>
           <div className="flex items-center">
             <LuRocket className="inline-block mr-2 text-blue-400" />
-            <span className='font-mp text-xl'>{sps.toFixed(1)} SPS</span>
+            <span className='font-mp text-xl'>{(sps * difficultyMultiplier).toFixed(1)} SPS</span>
+            {difficultyMultiplier !== 1 && (
+              <span className={`text-xs ml-2 ${difficultyMultiplier > 1 ? 'text-green-400' : 'text-red-400'}`}>
+                (x{difficultyMultiplier})
+              </span>
+            )}
           </div>
+          <button 
+            onClick={openDifficultyModal}
+            className="bg-gray-800 p-2 rounded-full hover:bg-gray-700 transition-colors"
+            title="Settings"
+          >
+            <LuSettings size={16} />
+          </button>
         </header>
         <main className="flex-grow overflow-auto pb-16">
           <Outlet />
@@ -205,6 +276,11 @@ const Layout = () => {
           icon="brain"
           subtext="The Knowledge tab is now available"
           actionText="Explore Knowledge"
+        />
+        
+        <DifficultyModal
+          isOpen={showDifficultyModal}
+          onClose={() => setShowDifficultyModal(false)}
         />
       </div>
     </GameContext.Provider>
